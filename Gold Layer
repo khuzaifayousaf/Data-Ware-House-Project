@@ -1,0 +1,62 @@
+/*
+In this Gold Layer we will do data integration,
+building model ready for reporting
+one by one
+/*
+-----=============================================================
+create view gold.customer_dim as (
+select
+row_number() over(order by cst_key) as customer_key,
+ci.cst_id as customer_id,
+ci.cst_key as customer_name,
+ci.cst_firstname as firstname,
+ci.cst_lastname as lastname,
+l.cntry as country,
+ci.cst_marital_status as marital_status,
+case when ci.cst_gndr <> 'n/a' then ci.cst_gndr
+else coalesce(ca.gen,'n/a')
+end as gender,
+ci.cst_create_date as create_date,
+ca.bdate as birthdate
+from silver.crm_cust_info as ci
+left join silver.erp_cust_az12 as ca
+on ci.cst_key = ca.cid
+left join silver.erp_loc_a101 as l
+on	ci.cst_key = l.cid
+);
+go
+create view gold.product_dim as (
+select
+ROW_NUMBER() over (order by p.prd_key,p.prd_start_dt) as product_id,
+p.prd_id as product_key,
+p.prd_key product_number,
+p.prd_line product_line,
+p.prd_nm as product_name,
+px.cat as product_category,
+px.subcat as product_subcategory,
+p.prd_cost as product_cost,
+px.maintenance as product_maintenance,
+p.prd_start_dt as product_startdate
+from silver.crm_prd_info as p
+left join silver.erp_px_cat_g1v2 as px
+on p.cat_key = px.id
+where p.prd_end_dt is null
+);
+go
+create view gold.sales_fact as (
+select
+sd.sls_ord_num as sales_order_number,
+pd.product_key as product_key,
+cu.customer_key as customer_key,
+sd.sls_order_dt as order_date,
+sd.sls_ship_dt as ship_date,
+sd.sls_due_dt as due_date,
+sd.sls_sales as sales,
+sd.sls_quantity as quantity,
+sd.sls_price as price
+from silver.crm_sales_details as sd
+left join gold.product_dim as pd
+on sd.sls_prd_key = pd.product_number
+left join gold.customer_dim as cu
+on sd.sls_cust_id = cu.customer_id
+);
