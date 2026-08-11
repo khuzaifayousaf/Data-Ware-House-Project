@@ -1,0 +1,212 @@
+/*
+In this Silver Layer we will clean our data 
+one by one
+/*
+------=================================================
+
+create schema silver; --- Ececute this first
+GO ---- Execute this Fourth
+---- Create Tables Using DDL
+create table silver.crm_cust_info (
+cst_id int,
+cst_key varchar(50),
+cst_firstname varchar(50),
+cst_lastname varchar(50),
+cst_marital_status varchar(50),
+cst_gndr varchar(50),
+cst_create_date date,
+dwh_create_date datetime2 default getdate()
+);
+go
+create table silver.crm_prd_info (
+prd_id int,
+cat_key varchar(50),
+prd_key varchar(50),
+prd_nm	varchar(50),
+prd_cost int,
+prd_line varchar(50),
+prd_start_dt date,
+prd_end_dt date,
+dwh_create_date datetime2 default getdate()
+);
+
+go
+create table  silver.crm_sales_details (
+sls_ord_num varchar(50),
+sls_prd_key varchar(50),
+sls_cust_id int,
+sls_order_dt date,
+sls_ship_dt date,
+sls_due_dt date,
+sls_sales int,
+sls_quantity int,
+sls_price int,
+dwh_create_date datetime2 default getdate()
+);
+go
+create table silver.erp_cust_az12 (
+cid varchar(50),
+bdate date,
+gen varchar(50),
+dwh_create_date datetime2 default getdate()
+);
+go
+create table silver.erp_loc_a101 (
+cid varchar(50),
+cntry varchar(50),
+dwh_create_date datetime2 default getdate()
+);
+go
+create table silver.erp_px_cat_g1v2 (
+id varchar(50),
+cat varchar(50),
+subcat varchar(50),
+maintenance varchar(50),
+dwh_create_date datetime2 default getdate()
+);
+go
+--- For to Find Duplicates in Primary_Key
+select
+i.cst_id,
+count(*) as Duplicates
+from bronze.crm_cust_info as i
+group by i.cst_id
+having count(*)>1
+;
+go
+-----Data Cleansing Process
+insert into [silver].[crm_cust_info] (cst_id,cst_key,
+		cst_firstname,cst_lastname,cst_marital_status,
+		cst_gndr,cst_create_date)
+select*
+from (select
+t.cst_id,
+t.cst_key,
+trim(t.cst_firstname) as cst_firstname,
+trim(t.cst_lastname) as cst_lastname,
+case when upper(t.cst_marital_status)='M' then 'Married'
+	when upper(t.cst_marital_status)='S' then 'Single'
+	else 'n/a'
+end as cst_marital_status,
+case when upper(t.cst_gndr)='M' then 'Male'
+	when upper(t.cst_gndr)='S' then 'Female'
+	else 'n/a'
+end as cst_gndr,
+t.cst_create_date
+from (
+select*,
+ROW_NUMBER() over (partition by cst_id order by
+	cst_create_date)as Unique_Value
+from bronze.crm_cust_info
+)t
+where Unique_Value = 1 and 
+		cst_id  is not null
+)h 
+order by h.cst_id asc;
+go
+
+------Counter Check
+--- For to Find Duplicates in Primary_Key
+select
+i.cst_id,
+count(*) as Duplicates
+from silver.crm_cust_info as i
+group by i.cst_id
+having count(*)>1
+-----Result Will Be Zero
+------Now Second Table Cleansing
+insert into [silver].[crm_prd_info] (prd_id,cat_key,
+			prd_key,prd_nm,prd_cost,prd_line,prd_start_dt,
+			prd_end_dt)
+select
+p.prd_id,
+replace(SUBSTRING(trim(p.prd_key),1,5),'-','_') as cat_key,
+SUBSTRING(trim(p.prd_key),7,len(p.prd_key)) as prd_key,
+trim(p.prd_nm) as prd_nm,
+coalesce(p.prd_cost,0) as prd_cost,
+case 
+	when upper(p.prd_line) = 'R' then 'Road'
+	when upper(p.prd_line) = 'S' then 'Other Sales'
+	when upper(p.prd_line) = 'M' then 'Mountain'
+	when upper(p.prd_line) = 'T' then 'Touring'
+	else 'n/a'
+end as prd_line,
+cast(p.prd_start_dt as date) as prd_start_dt,
+cast(LEAD(prd_start_dt) over (partition by p.prd_key
+	order by prd_start_dt)as date) as prd_end_dt
+from bronze.crm_prd_info as p
+order by p.prd_id asc
+;
+goinsert into silver.crm_sales_details (
+sls_ord_num,sls_prd_key,sls_cust_id
+,sls_order_dt,sls_ship_dt,sls_due_dt,
+sls_sales,sls_quantity,sls_price)
+select
+trim(d.sls_ord_num) as sls_ord_num,
+trim(d.sls_prd_key) as sls_prd_key,
+d.sls_cust_id,
+case 
+	when d.sls_order_dt = 0 or len(d.sls_order_dt)<>8
+	then null
+	else cast(cast(d.sls_order_dt as varchar)
+			as date)
+end as sls_order_dt,
+case 
+	when d.sls_ship_dt = 0 or 
+	len(d.sls_order_dt)<>8 then null
+	else cast(cast(d.sls_ship_dt as varchar)
+			as date)
+end as sls_ship_dt,
+case 
+	when d.sls_due_dt = 0 or len(d.sls_order_dt)<>8
+	then null
+	else cast(cast(d.sls_due_dt as varchar)
+			as date)
+end as sls_due_dt,
+case when sls_sales <> (sls_quantity*abs(sls_price))
+or sls_price is null or sls_price<0
+or sls_quantity is null or sls_quantity<0
+then sls_quantity*abs(sls_price)
+else sls_sales
+end sls_sales,
+sls_quantity,
+case 
+	when sls_price = 0 or sls_price<0
+	then sls_sales/nullif(sls_quantity,0)
+else sls_price
+end sls_price
+from bronze.crm_sales_details as d
+;
+go
+insert into silver.erp_cust_az12 (cid,bdate,gen)
+select
+case when cid like 'NAS%' then SUBSTRING(cid,4,len(cid))
+else cid
+end cid,
+case when bdate>GETDATE() THEN NULL
+ELSE bdate
+END bdate,
+case when gen in ('F','Female') then 'Female'
+when gen in ('M','Male') then 'Male'
+else 'n/a'
+end as gen
+from bronze.erp_cust_az12;
+go
+insert into silver.erp_loc_a101 (cid,cntry)
+select
+REPLACE(l.cid,'-','') as cid,
+case 
+	when trim(l.cntry) in ('US','USA','United States') then 'United States'
+	when trim(l.cntry) in ('DE','Germany') then 'Germany'
+	when trim(l.cntry) is null or trim(cntry) = '' then 'n/a'
+	else trim(l.cntry)
+	end cntry
+from bronze.erp_loc_a101 as l;
+go
+insert into silver.erp_px_cat_g1v2 (id,cat,subcat,maintenance)
+select
+g.id,
+g.cat,
+g.subcat,
+g.maintenance
+from bronze.erp_px_cat_g1v2 as g
