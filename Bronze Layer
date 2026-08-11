@@ -1,0 +1,74 @@
+/*
+In this Bronze Layer we will create tables and 
+insert data
+*/
+----=======================================================
+use master; GO ---- Execute this first
+create database DataWarehouse; GO ---- Execute this Second
+use DataWarehouse; GO  ---- Execute this third
+create schema bronze; GO ---- Execute this Fourth
+---- Create Tables Using DDL
+create table bronze.crm_cust_info (
+cst_id int,
+cst_key varchar(50),
+cst_firstname varchar(50),
+cst_lastname varchar(50),
+cst_marital_status varchar(50),
+cst_gndr varchar(50),
+cst_create_date date
+);
+go
+create table bronze.crm_prd_info (
+prd_id int,
+prd_key varchar(50),
+prd_nm	varchar(50),
+prd_cost int,
+prd_line varchar(50),
+prd_start_dt date,
+prd_end_dt date
+);
+go
+create table  bronze.crm_sales_details (
+sls_ord_num varchar(50),
+sls_prd_key varchar(50),
+sls_cust_id int,
+sls_order_dt int,
+sls_ship_dt int,
+sls_due_dt int,
+sls_sales int,
+sls_quantity int,
+sls_price int
+);
+go
+create table bronze.erp_cust_az12 (
+cid varchar(50),
+bdate date,
+gen varchar(50)
+);
+go
+create table bronze.erp_loc_a101 (
+cid varchar(50),
+cntry varchar(50)
+);
+go
+create table bronze.erp_px_cat_g1v2 (
+id varchar(50),
+cat varchar(50),
+subcat varchar(50),
+maintenance varchar(50)
+);
+go
+/* For all Tables Only names will change, process
+remain same, Like first path name then file name must be exact, and 
+Note: that your file-name must be in one row
+owthervise it will throw error*/
+truncate table [bronze].[erp_px_cat_g1v2];
+go
+bulk insert [bronze].[erp_px_cat_g1v2]
+from 'C:\sqlss\sql-data-warehouse-project\datasets\source_erp\PX_CAT_G1V2.csv'
+with (
+ firstrow = 2,
+ fieldterminator = ',',
+ tablock
+);
+
